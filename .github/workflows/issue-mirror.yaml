@@ -1,0 +1,35 @@
+name: Issue Mirror Sync
+
+on:
+    issues:
+        types: [opened]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  mirror_handler:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Dependencies
+        # We will need these later for Google APIs, but for now we just init
+        run: |
+          npm init -y
+          npm install @actions/core @actions/github
+
+      - name: Run Sync Script
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # We pass the issue data into the script via environment variables or context
+          ISSUE_CONTEXT: ${{ toJson(github.event.issue) }}
+          REPO_CONTEXT: ${{ toJson(github.repository) }}
+        run: node scripts/sync-incident.js
