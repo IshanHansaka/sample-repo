@@ -1,12 +1,12 @@
-import { setOutput, setFailed } from '@actions/core';
-import github from '@actions/github';
+const core = require('@actions/core');
+const github = require('@actions/github');
 
 async function run() {
     try {
         console.log("Starting Incident Sync Script...");
 
         // Get the data passed from YAML
-        // Note: process.env returns strings, so we parse them back to JSON
+        const token = process.env.GITHUB_TOKEN;
         const issueContext = process.env.ISSUE_CONTEXT;
         const repoContext = process.env.REPO_CONTEXT;
 
@@ -15,16 +15,12 @@ async function run() {
         }
 
         const issue = JSON.parse(issueContext);
-        const repo = JSON.parse(repoContext);
-
         // Extract Basic Incident Data
         const incidentNumber = issue.number;
         const title = issue.title;
         const description = issue.body || ""; 
         const author = issue.user.login;
         const url = issue.html_url;
-        
-        // Map labels to a simple array of strings
         const labels = issue.labels ? issue.labels.map(l => l.name) : [];
 
         console.log(`\n--- Incoming Incident Detected ---`);
@@ -45,19 +41,15 @@ async function run() {
             console.log(`   Doc ID: ${docId}`);
             console.log(`   Full Link: https://docs.google.com/document/d/${docId}`);
             
-            // Export the Doc ID for future steps (Milestone 2)
-            setOutput('doc_id', docId);
+            // Export the Doc ID for the next step (Milestone 2)
+            core.setOutput('doc_id', docId);
         } else {
             console.log(`NO SECURITY REPORT ATTACHED`);
-            console.log(`   Action: Please ensure a Google Doc link is present in the issue description.`);
+            console.log(`   Action: Please ensure a Google Doc link is present.`);
         }
 
-        console.log(`\n--- Status Update ---`);
-        console.log(`Logic separate from YAML: Success`);
-        console.log(`Ready for Google API integration.`);
-
     } catch (error) {
-        setFailed(`Action Failed: ${error.message}`);
+        core.setFailed(`Action Failed: ${error.message}`);
     }
 }
 

@@ -22,9 +22,8 @@ jobs:
 
       - name: Install Script Dependencies
         run: |
-          cd .github/scripts
-          npm install
-          cd ../..
+          npm init -y
+          npm install @actions/core @actions/github
 
       - name: Run Sync Script
         env:
