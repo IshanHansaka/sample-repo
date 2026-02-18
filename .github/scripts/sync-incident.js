@@ -1,5 +1,5 @@
-const core = require('@actions/core');
-const github = require('@actions/github');
+import { setOutput, setFailed } from '@actions/core';
+import github from '@actions/github';
 
 async function run() {
     try {
@@ -46,7 +46,7 @@ async function run() {
             console.log(`   Full Link: https://docs.google.com/document/d/${docId}`);
             
             // Export the Doc ID for future steps (Milestone 2)
-            core.setOutput('doc_id', docId);
+            setOutput('doc_id', docId);
         } else {
             console.log(`NO SECURITY REPORT ATTACHED`);
             console.log(`   Action: Please ensure a Google Doc link is present in the issue description.`);
@@ -57,7 +57,7 @@ async function run() {
         console.log(`Ready for Google API integration.`);
 
     } catch (error) {
-        core.setFailed(`Action Failed: ${error.message}`);
+        setFailed(`Action Failed: ${error.message}`);
     }
 }
 
