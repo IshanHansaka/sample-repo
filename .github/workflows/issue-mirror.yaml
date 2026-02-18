@@ -28,7 +28,7 @@ jobs:
 
       - name: Run Sync Script
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.SYNC_PAT_TOKEN }}
           # We pass the issue data into the script via environment variables or context
           ISSUE_CONTEXT: ${{ toJson(github.event.issue) }}
           REPO_CONTEXT: ${{ toJson(github.repository) }}
