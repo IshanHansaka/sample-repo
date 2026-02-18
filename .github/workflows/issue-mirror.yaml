@@ -15,43 +15,19 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # THIS is the magic step. No npm install needed.
-      - name: Run Sync Logic
-        uses: actions/github-script@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          script: |
-            // 1. Get the issue data directly from the context
-            const issue = context.payload.issue;
-            
-            const incidentNumber = issue.number;
-            const title = issue.title;
-            const description = issue.body || "";
-            const author = issue.user.login;
-            const url = issue.html_url;
-            const labels = issue.labels ? issue.labels.map(l => l.name) : [];
+          node-version: '20'
 
-            console.log("\n--- 📥 Incoming Incident Detected ---");
-            console.log(`Incident #: ${incidentNumber}`);
-            console.log(`Title:      ${title}`);
-            console.log(`Author:     ${author}`);
-            console.log(`Labels:     ${labels.join(', ')}`);
-            console.log(`Link:       ${url}`);
-            console.log("-------------------------------------\n");
+      - name: Install Script Dependencies
+        run: |
+          npm init -y  # Create a temp package.json
+          npm install @actions/core @actions/github
 
-            // 2. Logic: Find the Google Doc Link
-            const googleDocRegex = /docs\.google\.com\/document\/d\/([a-zA-Z0-9-_]+)/;
-            const match = description.match(googleDocRegex);
-
-            if (match && match[1]) {
-                const docId = match[1];
-                console.log("✅ SECURITY REPORT FOUND");
-                console.log(`   Doc ID: ${docId}`);
-                console.log(`   Full Link: https://docs.google.com/document/d/${docId}`);
-                
-                // We can export variables for future steps like this:
-                core.setOutput('doc_id', docId);
-            } else {
-                console.log("⚠️ NO SECURITY REPORT ATTACHED");
-                console.log("   Action: Please ensure a Google Doc link is present.");
-                // core.setFailed("Stopping: No Google Doc found."); // Uncomment to enforce this
-            }
+      - name: Run Sync Script
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_CONTEXT: ${{ toJson(github.event.issue) }}
+          REPO_CONTEXT: ${{ toJson(github.repository) }}
+        run: node scripts/sync-incident.js
