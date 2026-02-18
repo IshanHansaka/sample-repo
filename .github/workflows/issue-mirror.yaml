@@ -30,4 +30,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.SYNC_PAT_TOKEN }}
           ISSUE_CONTEXT: ${{ toJson(github.event.issue) }}
           REPO_CONTEXT: ${{ toJson(github.repository) }}
-        run: node scripts/sync-incident.js
+        run: node .github/scripts/sync-incident.js
