@@ -14,20 +14,11 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install Script Dependencies
-        run: |
-          npm init -y
-          npm install @actions/core @actions/github
-
+ 
       - name: Run Sync Script
-        env:
-          GITHUB_TOKEN: ${{ secrets.SYNC_PAT_TOKEN }}
-          ISSUE_CONTEXT: ${{ toJson(github.event.issue) }}
-          REPO_CONTEXT: ${{ toJson(github.repository) }}
-        run: node .github/scripts/sync-incident.js
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.SYNC_PAT_TOKEN }}
+          script: |
+            const script = require('./.github/scripts/sync-incident.js')
+            await script({github, context, core})
