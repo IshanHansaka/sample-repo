@@ -26,6 +26,13 @@ jobs:
           npm init -y
           npm install @actions/core @actions/github
 
+      - name: Debug - List Files
+        run: |
+          echo "Current working directory:"
+          pwd
+          echo "Listing all files in the repo:"
+          ls -R
+
       - name: Run Sync Script
         env:
           GITHUB_TOKEN: ${{ secrets.SYNC_PAT_TOKEN }}
