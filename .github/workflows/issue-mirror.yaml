@@ -33,6 +33,33 @@ jobs:
           echo "Listing all files in the repo:"
           ls -R
 
+      - name: Run Sync Script (Inline)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Make sure this matches your secret name
+          ISSUE_CONTEXT: ${{ toJson(github.event.issue) }}
+          REPO_CONTEXT: ${{ toJson(github.repository) }}
+        run: |
+          # Create the file on the fly to guarantee it exists
+          mkdir -p scripts
+          cat << 'EOF' > scripts/sync-incident.js
+          const core = require('@actions/core');
+          
+          async function run() {
+            try {
+              console.log("🚀 INLINE SCRIPT IS RUNNING!");
+              const issue = JSON.parse(process.env.ISSUE_CONTEXT);
+              console.log(`Title: ${issue.title}`);
+              // ... rest of your code ...
+            } catch (error) {
+              core.setFailed(error.message);
+            }
+          }
+          run();
+          EOF
+          
+          # Now run it
+          node scripts/sync-incident.js
+
       - name: Run Sync Script
         env:
           GITHUB_TOKEN: ${{ secrets.SYNC_PAT_TOKEN }}
