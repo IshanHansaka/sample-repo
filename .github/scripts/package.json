@@ -1,0 +1,11 @@
+{
+  "name": "sync-incident-script",
+  "version": "1.0.0",
+  "description": "Incident sync script for GitHub Actions",
+  "main": "sync-incident.js",
+  "type": "commonjs",
+  "dependencies": {
+    "@actions/core": "^1.10.0",
+    "@actions/github": "^5.1.1"
+  }
+}
