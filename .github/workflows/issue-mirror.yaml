@@ -21,4 +21,4 @@ jobs:
           github-token: ${{ secrets.SYNC_PAT_TOKEN }}
           script: |
             const script = require('./.github/scripts/sync-incident.js')
-            await script({github, context, core})
+            await script({ github, context, core })
