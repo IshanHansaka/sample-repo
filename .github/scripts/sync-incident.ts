@@ -1,5 +1,6 @@
 const GOOGLE_DOC_REGEX = /docs\.google\.com\/document\/d\/([a-zA-Z0-9-_]+)/;
 
+// --- INTERFACES ---
 interface IssueData {
   number: number;
   title: string;
@@ -16,7 +17,7 @@ interface IssueData {
   labels: string[];
 }
 
-// Helper function to extract and sanitize issue data.
+// Helper to extract GitHub data
 function parseIssueData(payload: any): IssueData {
   const { issue, repository } = payload;
 
@@ -37,6 +38,29 @@ function parseIssueData(payload: any): IssueData {
   };
 }
 
+// --- NEW HELPER: EXTRACT FROM MARKDOWN TABLE ---
+function extractMarkdownField(markdown: string, fieldName: string): string {
+  // Escapes special characters in the field name
+  const safeFieldName = fieldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  // Regex looks for: | **Field Name** | Value | (ignoring bold/italics and whitespace)
+  const regex = new RegExp(
+    `\\|\\s*(?:\\*\\*|__)?${safeFieldName}(?:\\*\\*|__)?\\s*\\|([^|]+)\\|`,
+    "i",
+  );
+  const match = markdown.match(regex);
+
+  if (match && match[1]) {
+    const value = match[1].trim();
+    // Clean up empty template placeholders
+    if (value === "SELECT" || value === "" || value === "N/A") {
+      return "Not Specified";
+    }
+    return value;
+  }
+  return "Not Found";
+}
+
 /**
  * AUTHENTICATION & EXPORT LOGIC
  */
@@ -50,9 +74,7 @@ async function fetchGoogleDocContent(
     const refreshToken = (process.env.GCP_REFRESH_TOKEN || "").trim();
 
     if (!clientId || !clientSecret || !refreshToken) {
-      throw new Error(
-        "Missing one or more GCP Secrets (CLIENT_ID, CLIENT_SECRET, or REFRESH_TOKEN).",
-      );
+      throw new Error("Missing GCP Secrets.");
     }
 
     const auth = new google.auth.OAuth2(clientId, clientSecret);
@@ -67,7 +89,7 @@ async function fetchGoogleDocContent(
       mimeType: "text/markdown",
     });
 
-    console.log("   Content fetched and converted to Markdown.");
+    console.log("   Content fetched.");
     return response.data as string;
   } catch (error: any) {
     console.error(`Google Error Details:`);
@@ -83,56 +105,61 @@ async function fetchGoogleDocContent(
 
 /**
  * MAIN FUNCTION EXPORT
- * Exporting this so the github-script YAML block can 'await' it.
  */
 module.exports = async ({ context, core, google }: any): Promise<void> => {
   try {
-    core.info("Starting Incident Sync Script (TypeScript Mode)...");
+    core.info("Starting Incident Parser...");
 
-    if (!context.payload.issue) {
-      throw new Error("No issue payload found.");
-    }
+    if (!context.payload.issue) throw new Error("No issue payload found.");
 
-    // Extract Data using helper
     const data = parseIssueData(context.payload);
-
-    // Log Details (Collapsible in GitHub UI)
-    core.startGroup(`Incident #${data.number} Details`);
-    core.info(`Title:      ${data.title}`);
-    core.info(`Author:     ${data.author}`);
-    core.info(`Assignees:  ${data.assignees}`);
-    core.info(`State:      ${data.state}`);
-    core.info(`Created:    ${data.createdAt}`);
-    core.info(`Labels:     ${data.labels.join(", ")}`);
-    core.info(`Repository: ${data.repoName}`);
-    core.info(`Milestone:  ${data.milestone}`);
-    core.info(`Link:       ${data.url}`);
-    core.endGroup();
-
-    // Find Google Doc link in the description
     const match = data.description.match(GOOGLE_DOC_REGEX);
 
-    if (match && match[1]) {
-      const docId = match[1];
-
-      // Use 'notice' to highlight this in the Actions Summary UI
-      core.notice(`Security Report Found: ${docId}`);
-      core.info(`   Full Link: https://docs.google.com/document/d/${docId}`);
-
-      core.setOutput("doc_id", docId);
-      core.setOutput("incident_number", data.number);
-
-      const markdownContent = await fetchGoogleDocContent(docId, google);
-
-      core.startGroup("Markdown Content Preview");
-      console.log(markdownContent);
-      core.endGroup();
-
-      core.setOutput("doc_id", docId);
-      core.setOutput("doc_content", markdownContent);
-    } else {
-      core.warning("No Security Report Link found in the description.");
+    if (!match || !match[1]) {
+      core.warning("No Google Doc link found in description. Exiting.");
+      return;
     }
+
+    const docId = match[1];
+    const docUrl = `https://docs.google.com/document/d/${docId}`;
+
+    core.notice(`Security Report Found: ${docId}`);
+    core.info(`   Full Link: https://docs.google.com/document/d/${docId}`);
+
+    // 1. Fetch the raw Markdown text
+    const markdownText = await fetchGoogleDocContent(docId, google);
+
+    // 2. Parse the specific fields into our final variables object
+    const incidentDetails = {
+      incidentNumber: `INC-${data.number}`,
+      incidentType: extractMarkdownField(markdownText, "Incident type"),
+      openedDate: extractMarkdownField(markdownText, "Incident reported on"),
+      lastUpdated: data.updatedAt,
+      lastUpdatedBy: data.author, // GitHub assigns the action actor
+      closedDate: extractMarkdownField(markdownText, "Incident closed on"),
+      reportedBy: extractMarkdownField(markdownText, "Reporter"),
+      description: extractMarkdownField(markdownText, "Incident Overview"),
+      impactedCustomerOrBU: extractMarkdownField(
+        markdownText,
+        "Customer(s) Impacted",
+      ),
+      state: data.state,
+      priority: extractMarkdownField(markdownText, "Priority"),
+      assignmentTo: extractMarkdownField(markdownText, "Coordinator"),
+      assignmentGroup: extractMarkdownField(
+        markdownText,
+        "Incident owning team (Custodi an)",
+      ),
+      affectedSystem: extractMarkdownField(markdownText, "Affected system(s)"),
+      attachmentOptions: docUrl,
+    };
+
+    // Print the variables to verify they parsed correctly
+    core.startGroup("Parsed Incident Variables");
+    console.log(JSON.stringify(incidentDetails, null, 2));
+    core.endGroup();
+
+    core.setOutput("incident_data_json", JSON.stringify(incidentDetails));
   } catch (error: any) {
     core.setFailed(`Sync Failed: ${error.message}`);
   }
