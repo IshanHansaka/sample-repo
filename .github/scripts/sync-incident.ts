@@ -106,9 +106,14 @@ async function fetchGoogleDocContent(
 /**
  * MAIN FUNCTION EXPORT
  */
-module.exports = async ({ context, core, google }: any): Promise<void> => {
+module.exports = async ({
+  context,
+  core,
+  google,
+  github,
+}: any): Promise<void> => {
   try {
-    core.info("Starting Incident Parser...");
+    core.info("Starting Incident Parser & Mirroring...");
 
     if (!context.payload.issue) throw new Error("No issue payload found.");
 
@@ -126,16 +131,16 @@ module.exports = async ({ context, core, google }: any): Promise<void> => {
     core.notice(`Security Report Found: ${docId}`);
     core.info(`   Full Link: https://docs.google.com/document/d/${docId}`);
 
-    // 1. Fetch the raw Markdown text
+    // Fetch the raw Markdown text
     const markdownText = await fetchGoogleDocContent(docId, google);
 
-    // 2. Parse the specific fields into our final variables object
+    // Parse the specific fields into our final variables object
     const incidentDetails = {
       incidentNumber: `INC-${data.number}`,
       incidentType: extractMarkdownField(markdownText, "Incident type"),
       openedDate: extractMarkdownField(markdownText, "Incident reported on"),
       lastUpdated: data.updatedAt,
-      lastUpdatedBy: data.author, // GitHub assigns the action actor
+      lastUpdatedBy: data.author,
       closedDate: extractMarkdownField(markdownText, "Incident closed on"),
       reportedBy: extractMarkdownField(markdownText, "Reporter"),
       description: extractMarkdownField(markdownText, "Incident Overview"),
@@ -160,6 +165,67 @@ module.exports = async ({ context, core, google }: any): Promise<void> => {
     core.endGroup();
 
     core.setOutput("incident_data_json", JSON.stringify(incidentDetails));
+
+    // Build the Markdown Body for the Centralized Repo Issue
+    const mirroredIssueBody = `
+        ### Description
+        ${data.description}
+
+        ---
+
+        ## Security Incident Report
+
+        | Field | Value |
+        |---|---|
+        | **Incident #** | ${incidentDetails.incidentNumber} |
+        | **Incident Type** | ${incidentDetails.incidentType} |
+        | **Opened Date** | ${incidentDetails.openedDate} |
+        | **Last Updated** | ${incidentDetails.lastUpdated} |
+        | **Last Updated By** | ${incidentDetails.lastUpdatedBy} |
+        | **Closed Date** | ${incidentDetails.closedDate} |
+        | **Reported By** | ${incidentDetails.reportedBy} |
+        | **Description** | ${incidentDetails.description} |
+        | **Priority** | ${incidentDetails.priority} |
+        | **State** | ${incidentDetails.state} |
+        | **Impacted BU/Customer** | ${incidentDetails.impactedCustomerOrBU} |
+        | **Affected System** | ${incidentDetails.affectedSystem} |
+        | **Assignment Group** | ${incidentDetails.assignmentGroup} |
+        | **Assignment To** | ${incidentDetails.assignmentTo} |
+        | **Service/Product/Scope/system/Tool** | ${incidentDetails.assignmentTo} |
+        | **Attachment options for incident report** | ${incidentDetails.attachmentOptions} |
+        ---
+
+        **Original Issue:** [${data.repoName}#${data.number}](${data.url})
+        **Original Author:** [${data.author}](${`https://github.com/${data.author}`})
+        **Google Doc Report:** [View Full Document](${incidentDetails.attachmentOptions})
+    `;
+
+    // Create the Issue in the Target Repository
+    const targetOwner = "IshanHansaka";
+    const targetRepo = "centralised-repo";
+
+    core.info(`Creating mirrored issue in ${targetOwner}/${targetRepo}...`);
+
+    const newIssue = await github.rest.issues.create({
+      owner: targetOwner,
+      repo: targetRepo,
+      title: `${data.title}`,
+      body: mirroredIssueBody,
+      labels: [...data.labels, "mirrored-incident"],
+      milestones: data.milestone ? [data.milestone] : undefined,
+    });
+
+    core.notice(
+      `Mirrored issue created successfully: ${newIssue.data.html_url}`,
+    );
+
+    // Add a comment to the ORIGINAL issue linking to the new one
+    await github.rest.issues.createComment({
+      owner: context.repo.owner,
+      repo: context.repo.repo,
+      issue_number: context.issue.number,
+      body: `**Incident Mirrored Successfully**\nA mirrored ticket containing the parsed document data has been created in the centralized repository: ${newIssue.data.html_url}`,
+    });
   } catch (error: any) {
     core.setFailed(`Sync Failed: ${error.message}`);
   }
