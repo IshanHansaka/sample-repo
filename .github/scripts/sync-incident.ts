@@ -167,8 +167,7 @@ module.exports = async ({
     core.setOutput("incident_data_json", JSON.stringify(incidentDetails));
 
     // Build the Markdown Body for the Centralized Repo Issue
-    const mirroredIssueBody = `
-        ### Description
+    const mirroredIssueBody = `### Description
         ${data.description}
 
         ---
@@ -193,12 +192,13 @@ module.exports = async ({
         | **Assignment To** | ${incidentDetails.assignmentTo} |
         | **Service/Product/Scope/system/Tool** | ${incidentDetails.assignmentTo} |
         | **Attachment options for incident report** | ${incidentDetails.attachmentOptions} |
+
         ---
 
         **Original Issue:** [${data.repoName}#${data.number}](${data.url})
-        **Original Author:** [${data.author}](${`https://github.com/${data.author}`})
+        **Original Author:** [@${data.author}](https://github.com/${data.author})
         **Google Doc Report:** [View Full Document](${incidentDetails.attachmentOptions})
-    `;
+        `;
 
     // Create the Issue in the Target Repository
     const targetOwner = "IshanHansaka";
