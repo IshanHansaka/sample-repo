@@ -33,9 +33,10 @@ jobs:
           github-token: ${{ secrets.SYNC_PAT_TOKEN }}
           script: |
             const script = require('./.github/scripts/sync-incident.js')
+            const { google } = require('googleapis');
             await script({
               github,
               context,
               core,
-              google: require('googleapis')
+              google: google
             })
