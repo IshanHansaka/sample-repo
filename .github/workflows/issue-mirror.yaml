@@ -21,15 +21,25 @@ jobs:
           node-version: "20"
 
       - name: Install Dependencies
-        run: |
-          npm init -y
-          npm install @actions/core @actions/github googleapis tsx typescript @types/node
+        run: npm install googleapis ts-node typescript @types/node
 
       - name: Run Sync Script
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.SYNC_PAT_TOKEN }}
+          script: |
+            require('ts-node').register({ transpileOnly: true });
+
+            const script = require('./.github/scripts/sync-incident.ts');
+            const { google } = require('googleapis');
+            
+            await script({
+              github,
+              context,
+              core,
+              google: google
+            })
         env:
-          GITHUB_TOKEN: ${{ secrets.SYNC_PAT_TOKEN }}
-          GCP_CLIENT_ID: ${{ secrets.GCP_CLIENT_ID }}
-          GCP_CLIENT_SECRET: ${{ secrets.GCP_CLIENT_SECRET }}
-          GCP_REFRESH_TOKEN: ${{ secrets.GCP_REFRESH_TOKEN }}
-        # We use npx tsx to execute the TypeScript file directly!
-        run: npx tsx .github/scripts/sync-incident.ts
+          GCP_CLIENT_ID: ${{ secrets['GCP_CLIENT_ID'] }}
+          GCP_CLIENT_SECRET: ${{ secrets['GCP_CLIENT_SECRET'] }}
+          GCP_REFRESH_TOKEN: ${{ secrets['GCP_REFRESH_TOKEN'] }}

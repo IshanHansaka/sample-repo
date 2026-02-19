@@ -1,10 +1,5 @@
-import * as core from "@actions/core";
-import * as github from "@actions/github";
-import { google } from "googleapis";
-
 const GOOGLE_DOC_REGEX = /docs\.google\.com\/document\/d\/([a-zA-Z0-9-_]+)/;
 
-// --- INTERFACES ---
 interface IssueData {
   number: number;
   title: string;
@@ -45,7 +40,10 @@ function parseIssueData(payload: any): IssueData {
 /**
  * AUTHENTICATION & EXPORT LOGIC
  */
-async function fetchGoogleDocContent(docId: string): Promise<string> {
+async function fetchGoogleDocContent(
+  docId: string,
+  google: any,
+): Promise<string> {
   try {
     const clientId = (process.env.GCP_CLIENT_ID || "").trim();
     const clientSecret = (process.env.GCP_CLIENT_SECRET || "").trim();
@@ -84,21 +82,21 @@ async function fetchGoogleDocContent(docId: string): Promise<string> {
 }
 
 /**
- * MAIN FUNCTION
+ * MAIN FUNCTION EXPORT
+ * Exporting this so the github-script YAML block can 'await' it.
  */
-async function run(): Promise<void> {
+module.exports = async ({ context, core, google }: any): Promise<void> => {
   try {
     core.info("Starting Incident Sync Script (TypeScript Mode)...");
-
-    // Get the context directly from the github module
-    const context = github.context;
 
     if (!context.payload.issue) {
       throw new Error("No issue payload found.");
     }
 
+    // Extract Data using helper
     const data = parseIssueData(context.payload);
 
+    // Log Details (Collapsible in GitHub UI)
     core.startGroup(`Incident #${data.number} Details`);
     core.info(`Title:      ${data.title}`);
     core.info(`Author:     ${data.author}`);
@@ -111,21 +109,23 @@ async function run(): Promise<void> {
     core.info(`Link:       ${data.url}`);
     core.endGroup();
 
+    // Find Google Doc link in the description
     const match = data.description.match(GOOGLE_DOC_REGEX);
 
     if (match && match[1]) {
       const docId = match[1];
 
+      // Use 'notice' to highlight this in the Actions Summary UI
       core.notice(`Security Report Found: ${docId}`);
       core.info(`   Full Link: https://docs.google.com/document/d/${docId}`);
 
       core.setOutput("doc_id", docId);
       core.setOutput("incident_number", data.number);
 
-      const markdownContent = await fetchGoogleDocContent(docId);
+      const markdownContent = await fetchGoogleDocContent(docId, google);
 
       core.startGroup("Markdown Content Preview");
-      console.log(markdownContent); //.substring(0, 10000)
+      console.log(markdownContent);
       core.endGroup();
 
       core.setOutput("doc_id", docId);
@@ -136,6 +136,4 @@ async function run(): Promise<void> {
   } catch (error: any) {
     core.setFailed(`Sync Failed: ${error.message}`);
   }
-}
-
-run();
+};
