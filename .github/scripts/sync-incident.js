@@ -22,7 +22,47 @@ function parseIssueData(payload) {
     };
 }
 
-module.exports = async ({ context, core }) => {
+/**
+ * AUTHENTICATION & EXPORT LOGIC
+ * Uses OAuth2 Refresh Token to act as the user (Machine-to-Machine)
+ */
+async function fetchGoogleDocContent(docId, google) {
+    try {
+        // Setup OAuth2 Client using your Client ID & Secret
+        const auth = new google.auth.OAuth2(
+            process.env.GCP_CLIENT_ID,
+            process.env.GCP_CLIENT_SECRET
+        );
+
+        // Load the Refresh Token
+        auth.setCredentials({
+            refresh_token: process.env.GCP_REFRESH_TOKEN
+        });
+
+        // Create Drive Client
+        const drive = google.drive({ version: 'v3', auth });
+
+        console.log(`   Fetching Doc ID: ${docId}...`);
+
+        // Hit the Export API
+        const response = await drive.files.export({
+            fileId: docId,
+            mimeType: 'text/markdown', 
+        });
+
+        console.log("    Content fetched and converted to Markdown.");
+        return response.data;
+
+    } catch (error) {
+        console.error(`   Google Drive API Error: ${error.message}`);
+        if (error.code === 403) {
+            throw new Error("Permission Denied: The account linked to the Refresh Token does not have access to this Doc.");
+        }
+        throw error;
+    }
+}
+
+module.exports = async ({ context, core, google }) => {
     try {
         core.info("Starting Incident Sync Script...");
 
@@ -44,6 +84,7 @@ module.exports = async ({ context, core }) => {
         core.info(`Repository: ${data.repoName}`);
         core.info(`Milestone:  ${data.milestone}`);
         core.info(`Link:       ${data.url}`);
+
         core.endGroup();
 
         // Find Google Doc link in the description
@@ -58,6 +99,14 @@ module.exports = async ({ context, core }) => {
 
             core.setOutput('doc_id', docId);
             core.setOutput('incident_number', data.number);
+
+            const markdownContent = await fetchGoogleDocContent(docId, google);
+
+            core.startGroup("📄 Markdown Content Preview");
+            console.log(markdownContent.substring(0, 1000));
+
+            core.setOutput('doc_id', docId);
+            core.setOutput('doc_content', markdownContent);
         } else {
             core.warning("No Security Report Link found in the description.");
         }
