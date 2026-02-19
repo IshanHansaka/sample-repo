@@ -111,6 +111,8 @@ module.exports = async ({
   core,
   google,
   github,
+  fs,
+  path,
 }: any): Promise<void> => {
   try {
     core.info("Starting Incident Parser & Mirroring...");
