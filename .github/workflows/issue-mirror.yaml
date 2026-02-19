@@ -25,10 +25,6 @@ jobs:
 
       - name: Run Sync Script
         uses: actions/github-script@v7
-        env:
-          GCP_CLIENT_ID: ${{ secrets.GCP_CLIENT_ID }}
-          GCP_CLIENT_SECRET: ${{ secrets.GCP_CLIENT_SECRET }}
-          GCP_REFRESH_TOKEN: ${{ secrets.GCP_REFRESH_TOKEN }}
         with:
           github-token: ${{ secrets.SYNC_PAT_TOKEN }}
           script: |
@@ -40,3 +36,7 @@ jobs:
               core,
               google: google
             })
+        env:
+          GCP_CLIENT_ID: ${{ secrets['GCP_CLIENT_ID'] }}
+          GCP_CLIENT_SECRET: ${{ secrets['GCP_CLIENT_SECRET'] }}
+          GCP_REFRESH_TOKEN: ${{ secrets['GCP_REFRESH_TOKEN'] }}
