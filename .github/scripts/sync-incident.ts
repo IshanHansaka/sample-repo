@@ -167,38 +167,38 @@ module.exports = async ({
     core.setOutput("incident_data_json", JSON.stringify(incidentDetails));
 
     // Build the Markdown Body for the Centralized Repo Issue
-    const mirroredIssueBody = `### Description
-        ${data.description}
+    const mirroredIssueBody = `
+### Description
 
-        ---
+${data.description}
 
-        ## Security Incident Report
+## Security Incident Report
 
-        | Field | Value |
-        |---|---|
-        | **Incident #** | ${incidentDetails.incidentNumber} |
-        | **Incident Type** | ${incidentDetails.incidentType} |
-        | **Opened Date** | ${incidentDetails.openedDate} |
-        | **Last Updated** | ${incidentDetails.lastUpdated} |
-        | **Last Updated By** | ${incidentDetails.lastUpdatedBy} |
-        | **Closed Date** | ${incidentDetails.closedDate} |
-        | **Reported By** | ${incidentDetails.reportedBy} |
-        | **Description** | ${incidentDetails.description} |
-        | **Priority** | ${incidentDetails.priority} |
-        | **State** | ${incidentDetails.state} |
-        | **Impacted BU/Customer** | ${incidentDetails.impactedCustomerOrBU} |
-        | **Affected System** | ${incidentDetails.affectedSystem} |
-        | **Assignment Group** | ${incidentDetails.assignmentGroup} |
-        | **Assignment To** | ${incidentDetails.assignmentTo} |
-        | **Service/Product/Scope/system/Tool** | ${incidentDetails.assignmentTo} |
-        | **Attachment options for incident report** | ${incidentDetails.attachmentOptions} |
+| Field                                      | Value                                   |
+| ------------------------------------------ | --------------------------------------- |
+| **Incident #**                             | ${incidentDetails.incidentNumber}       |
+| **Incident Type**                          | ${incidentDetails.incidentType}         |
+| **Opened Date**                            | ${incidentDetails.openedDate}           |
+| **Last Updated**                           | ${incidentDetails.lastUpdated}          |
+| **Last Updated By**                        | ${incidentDetails.lastUpdatedBy}        |
+| **Closed Date**                            | ${incidentDetails.closedDate}           |
+| **Reported By**                            | ${incidentDetails.reportedBy}           |
+| **Description**                            | ${incidentDetails.description}          |
+| **Priority**                               | ${incidentDetails.priority}             |
+| **State**                                  | ${incidentDetails.state}                |
+| **Impacted BU/Customer**                   | ${incidentDetails.impactedCustomerOrBU} |
+| **Affected System**                        | ${incidentDetails.affectedSystem}       |
+| **Assignment Group**                       | ${incidentDetails.assignmentGroup}      |
+| **Assignment To**                          | ${incidentDetails.assignmentTo}         |
+| **Service/Product/Scope/system/Tool**      | ${incidentDetails.assignmentTo}         |
+| **Attachment options for incident report** | ${incidentDetails.attachmentOptions}    |
 
-        ---
+---
 
-        **Original Issue:** [${data.repoName}#${data.number}](${data.url})
-        **Original Author:** [@${data.author}](https://github.com/${data.author})
-        **Google Doc Report:** [View Full Document](${incidentDetails.attachmentOptions})
-        `;
+**Original Issue:** [${data.repoName}#${data.number}](${data.url})
+**Original Author:** [@${data.author}](https://github.com/${data.author})
+**Google Doc Report:** [View Full Document](${incidentDetails.attachmentOptions})    
+`;
 
     // Create the Issue in the Target Repository
     const targetOwner = "IshanHansaka";
