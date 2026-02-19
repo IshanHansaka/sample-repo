@@ -166,39 +166,42 @@ module.exports = async ({
 
     core.setOutput("incident_data_json", JSON.stringify(incidentDetails));
 
-    // Build the Markdown Body for the Centralized Repo Issue
-    const mirroredIssueBody = `
-### Description
+    const workspace = process.env.GITHUB_WORKSPACE || ".";
+    const templatePath = path.join(
+      workspace,
+      ".github/templates/incident-mirror.md",
+    );
 
-${data.description}
+    let mirroredIssueBody = fs.readFileSync(templatePath, "utf8");
 
-## Security Incident Report
+    const replacements: Record<string, string> = {
+      "{{DESCRIPTION}}": data.description,
+      "{{INCIDENT_NUMBER}}": incidentDetails.incidentNumber,
+      "{{INCIDENT_TYPE}}": incidentDetails.incidentType,
+      "{{OPENED_DATE}}": incidentDetails.openedDate,
+      "{{LAST_UPDATED}}": incidentDetails.lastUpdated,
+      "{{LAST_UPDATED_BY}}": incidentDetails.lastUpdatedBy || "",
+      "{{CLOSED_DATE}}": incidentDetails.closedDate,
+      "{{REPORTED_BY}}": incidentDetails.reportedBy,
+      "{{DOC_DESCRIPTION}}": incidentDetails.description,
+      "{{PRIORITY}}": incidentDetails.priority,
+      "{{STATE}}": incidentDetails.state,
+      "{{IMPACTED_BU}}": incidentDetails.impactedCustomerOrBU,
+      "{{AFFECTED_SYSTEM}}": incidentDetails.affectedSystem,
+      "{{ASSIGNMENT_GROUP}}": incidentDetails.assignmentGroup,
+      "{{ASSIGNMENT_TO}}": incidentDetails.assignmentTo,
+      "{{ATTACHMENT_OPTIONS}}": incidentDetails.attachmentOptions,
+      "{{REPO_NAME}}": data.repoName,
+      "{{ISSUE_NUMBER}}": data.number.toString(),
+      "{{ISSUE_URL}}": data.url,
+      "{{AUTHOR}}": data.author || "Unknown",
+    };
 
-| Field                                      | Value                                   |
-| ------------------------------------------ | --------------------------------------- |
-| **Incident #**                             | ${incidentDetails.incidentNumber}       |
-| **Incident Type**                          | ${incidentDetails.incidentType}         |
-| **Opened Date**                            | ${incidentDetails.openedDate}           |
-| **Last Updated**                           | ${incidentDetails.lastUpdated}          |
-| **Last Updated By**                        | ${incidentDetails.lastUpdatedBy}        |
-| **Closed Date**                            | ${incidentDetails.closedDate}           |
-| **Reported By**                            | ${incidentDetails.reportedBy}           |
-| **Description**                            | ${incidentDetails.description}          |
-| **Priority**                               | ${incidentDetails.priority}             |
-| **State**                                  | ${incidentDetails.state}                |
-| **Impacted BU/Customer**                   | ${incidentDetails.impactedCustomerOrBU} |
-| **Affected System**                        | ${incidentDetails.affectedSystem}       |
-| **Assignment Group**                       | ${incidentDetails.assignmentGroup}      |
-| **Assignment To**                          | ${incidentDetails.assignmentTo}         |
-| **Service/Product/Scope/system/Tool**      | ${incidentDetails.assignmentTo}         |
-| **Attachment options for incident report** | ${incidentDetails.attachmentOptions}    |
-
----
-
-**Original Issue:** [${data.repoName}#${data.number}](${data.url})
-**Original Author:** [@${data.author}](https://github.com/${data.author})
-**Google Doc Report:** [View Full Document](${incidentDetails.attachmentOptions})    
-`;
+    for (const [placeholder, value] of Object.entries(replacements)) {
+      // Use RegExp with 'g' flag to replace all occurrences of a placeholder
+      const regex = new RegExp(placeholder, "g");
+      mirroredIssueBody = mirroredIssueBody.replace(regex, value);
+    }
 
     // Create the Issue in the Target Repository
     const targetOwner = "IshanHansaka";
@@ -212,7 +215,10 @@ ${data.description}
       title: `${data.title}`,
       body: mirroredIssueBody,
       labels: [...data.labels, "mirrored-incident"],
-      milestones: data.milestone ? [data.milestone] : undefined,
+      assignees: data.assignees
+        ? data.assignees.split(", ").map((a: string) => a.trim())
+        : null,
+      milestones: data.milestone ? [data.milestone] : null,
     });
 
     core.notice(
