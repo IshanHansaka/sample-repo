@@ -61,7 +61,24 @@ function formatDateForGitHub(dateString: string): string | null {
     return null;
   // Extracts the first YYYY-MM-DD sequence it finds
   const match = dateString.match(/(\d{4}-\d{2}-\d{2})/);
-  return match ? match[1] : null;
+  if (!match) return null;
+
+  const dateStr = match[1];
+  // Validate it's a real date
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return null;
+
+  // Verify the formatted date matches the input (catches invalid dates like 2024-02-30)
+  const [year, month, day] = dateStr.split("-").map(Number);
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() + 1 !== month ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return dateStr;
 }
 
 /**
@@ -178,19 +195,43 @@ async function updateProjectDateField(
   itemId: string,
   fieldId: string,
   value: string | null,
+  fieldName?: string,
 ) {
-  if (!fieldId || !value) return;
-  const mutation = `
-    mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: Date!) {
-      updateProjectV2ItemFieldValue(input: {
-        projectId: $projectId,
-        itemId: $itemId,
-        fieldId: $fieldId,
-        value: { date: $value }
-      }) { projectV2Item { id } }
-    }
-  `;
-  await graphql(mutation, { projectId, itemId, fieldId, value });
+  if (!fieldId) return;
+  if (!value) {
+    console.log(
+      `   Skipping ${fieldName || "date field"}: no valid date value`,
+    );
+    return;
+  }
+
+  // Final validation: ensure YYYY-MM-DD format
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    console.warn(
+      `   Invalid date format for ${fieldName || "field"}: ${value}`,
+    );
+    return;
+  }
+
+  try {
+    const mutation = `
+      mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: Date!) {
+        updateProjectV2ItemFieldValue(input: {
+          projectId: $projectId,
+          itemId: $itemId,
+          fieldId: $fieldId,
+          value: { date: $value }
+        }) { projectV2Item { id } }
+      }
+    `;
+    await graphql(mutation, { projectId, itemId, fieldId, value });
+    console.log(`   ✓ Set ${fieldName || "date"}: ${value}`);
+  } catch (error: any) {
+    console.error(
+      `   ✗ Failed to set ${fieldName || "date field"} to "${value}": ${error.message}`,
+    );
+    throw error;
+  }
 }
 
 /**
@@ -251,6 +292,19 @@ module.exports = async ({
       affectedSystem: extractMarkdownField(markdownText, "Affected system(s)"),
       attachmentOptions: docUrl,
     };
+
+    // Debug: Log raw and formatted dates
+    core.startGroup("Date Field Debug Info");
+    core.info(
+      `Raw Opened Date: "${incidentDetails.openedDate}" → Formatted: ${formatDateForGitHub(incidentDetails.openedDate)}`,
+    );
+    core.info(
+      `Raw Closed Date: "${incidentDetails.closedDate}" → Formatted: ${formatDateForGitHub(incidentDetails.closedDate)}`,
+    );
+    core.info(
+      `Raw Last Updated: "${incidentDetails.lastUpdated}" → Formatted: ${formatDateForGitHub(incidentDetails.lastUpdated)}`,
+    );
+    core.endGroup();
 
     // Template Replacement
     const workspace = process.env.GITHUB_WORKSPACE || ".";
@@ -425,12 +479,14 @@ module.exports = async ({
       );
 
       // UPDATE DATE FIELDS
+      core.startGroup("Updating Project Date Fields");
       await updateProjectDateField(
         targetClient.graphql,
         projectId,
         itemId,
         getFieldId("Opened Date"),
         formatDateForGitHub(incidentDetails.openedDate),
+        "Opened Date",
       );
       await updateProjectDateField(
         targetClient.graphql,
@@ -438,6 +494,7 @@ module.exports = async ({
         itemId,
         getFieldId("Closed date"),
         formatDateForGitHub(incidentDetails.closedDate),
+        "Closed Date",
       );
       await updateProjectDateField(
         targetClient.graphql,
@@ -445,7 +502,9 @@ module.exports = async ({
         itemId,
         getFieldId("Last Updated"),
         formatDateForGitHub(incidentDetails.lastUpdated),
+        "Last Updated",
       );
+      core.endGroup();
 
       core.notice("Successfully synced data to Project V2!");
     } catch (projectError: any) {
