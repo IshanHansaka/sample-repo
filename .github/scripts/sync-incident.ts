@@ -9,7 +9,6 @@ interface IssueData {
   url: string;
   assignees: string | null;
   state: string;
-  createdAt: string;
   updatedAt: string;
   closedAt: string | null;
   repoName: string;
@@ -29,7 +28,6 @@ function parseIssueData(payload: any): IssueData {
     url: issue.html_url,
     assignees: issue.assignees?.map((a: any) => a.login).join(", ") || null,
     state: issue.state,
-    createdAt: issue.created_at,
     updatedAt: issue.updated_at,
     closedAt: issue.closed_at || null,
     repoName: repository.full_name,
