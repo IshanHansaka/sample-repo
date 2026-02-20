@@ -35,28 +35,19 @@ function parseIssueData(payload: any): IssueData {
 
 // Helper to extract Google doc markdown data
 function extractMarkdownField(markdown: string, fieldName: string): string {
-  // Escapes special characters in the field name
   const safeFieldName = fieldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-  // Regex looks for: | **Field Name** | Value | (ignoring bold/italics and whitespace)
   const regex = new RegExp(
     `\\|\\s*(?:\\*\\*|__)?${safeFieldName}(?:\\*\\*|__)?\\s*\\|([^|]+)\\|`,
     "i",
   );
-
   const match = markdown.match(regex);
-
   if (match && match[1]) {
     const value = match[1].trim();
-
-    // Clean up empty template placeholders
     if (value === "SELECT" || value === "" || value === "N/A") {
       return "Not Specified";
     }
-
     return value;
   }
-
   return "Not Found";
 }
 
@@ -67,6 +58,7 @@ async function fetchGoogleDocContent(
   docId: string,
   google: any,
 ): Promise<string> {
+  // ... (keep your existing Google API logic exactly as is)
   try {
     const clientId = (process.env.GCP_CLIENT_ID || "").trim();
     const clientSecret = (process.env.GCP_CLIENT_SECRET || "").trim();
@@ -100,6 +92,74 @@ async function fetchGoogleDocContent(
     }
     throw error;
   }
+}
+
+/**
+ * PROJECT V2 GRAPHQL HELPERS
+ */
+async function getProjectData(
+  graphql: any,
+  userLogin: string,
+  projectNumber: number,
+) {
+  const query = `
+    query($login: String!, $number: Int!) {
+      user(login: $login) {
+        projectV2(number: $number) {
+          id
+          fields(first: 50) {
+            nodes {
+              ... on ProjectV2Field { id name }
+              ... on ProjectV2SingleSelectField { id name }
+            }
+          }
+        }
+      }
+    }
+  `;
+  const result = await graphql(query, {
+    login: userLogin,
+    number: projectNumber,
+  });
+  return result.user.projectV2;
+}
+
+async function addIssueToProject(
+  graphql: any,
+  projectId: string,
+  contentId: string,
+) {
+  const mutation = `
+    mutation($projectId: ID!, $contentId: ID!) {
+      addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
+        item { id }
+      }
+    }
+  `;
+  const result = await graphql(mutation, { projectId, contentId });
+  return result.addProjectV2ItemById.item.id;
+}
+
+async function updateProjectTextField(
+  graphql: any,
+  projectId: string,
+  itemId: string,
+  fieldId: string,
+  value: string,
+) {
+  if (!fieldId || !value || value === "Not Found" || value === "Not Specified")
+    return;
+  const mutation = `
+    mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: String!) {
+      updateProjectV2ItemFieldValue(input: {
+        projectId: $projectId,
+        itemId: $itemId,
+        fieldId: $fieldId,
+        value: { text: $value }
+      }) { projectV2Item { id } }
+    }
+  `;
+  await graphql(mutation, { projectId, itemId, fieldId, value });
 }
 
 /**
@@ -162,13 +222,7 @@ module.exports = async ({
       attachmentOptions: docUrl,
     };
 
-    // Print the variables to verify they parsed correctly
-    core.startGroup("Parsed Incident Variables");
-    console.log(JSON.stringify(incidentDetails, null, 2));
-    core.endGroup();
-
-    core.setOutput("incident_data_json", JSON.stringify(incidentDetails));
-
+    // Template Replacement Logic
     const workspace = process.env.GITHUB_WORKSPACE || ".";
     const templatePath = path.join(
       workspace,
@@ -207,38 +261,24 @@ module.exports = async ({
     // Create the Issue in the Target Repository
     const targetOwner = process.env.TARGET_OWNER;
     const targetRepo = process.env.TARGET_REPO;
+    const projectToken = process.env.PROJECT_ACCESS_TOKEN;
 
-    if (!targetOwner || !targetRepo) {
+    if (!targetOwner || !targetRepo || !projectToken) {
       throw new Error(
-        "Missing TARGET_OWNER or TARGET_REPO in environment variables.",
+        "Missing TARGET_OWNER, TARGET_REPO, or PROJECT_ACCESS_TOKEN in env.",
       );
     }
 
+    let targetClient =
+      typeof getOctokit === "function"
+        ? getOctokit(projectToken)
+        : new github.constructor({ auth: projectToken });
+
+    // Create Mirrored Issue
     core.info(
       `Creating mirrored issue in https://github.com/${targetOwner}/${targetRepo}`,
     );
-
-    const centralizedRepoToken = process.env.CENTRALIZED_REPO_TOKEN;
-
-    if (!centralizedRepoToken || centralizedRepoToken.trim() === "") {
-      throw new Error(
-        "Missing or empty CENTRALIZED_REPO_TOKEN in environment variables.",
-      );
-    }
-
-    let centralizedRepoClient;
-
-    if (typeof getOctokit === "function") {
-      centralizedRepoClient = getOctokit(centralizedRepoToken);
-    } else if (github?.constructor) {
-      centralizedRepoClient = new github.constructor({
-        auth: centralizedRepoToken,
-      });
-    } else {
-      throw new Error("Unable to create Octokit client for target repository.");
-    }
-
-    const newIssue = await centralizedRepoClient.rest.issues.create({
+    const newIssue = await targetClient.rest.issues.create({
       owner: targetOwner,
       repo: targetRepo,
       title: `${data.title}`,
@@ -247,11 +287,123 @@ module.exports = async ({
       assignees: data.assignees.length > 0 ? data.assignees : undefined,
     });
 
-    core.notice(
-      `Mirrored issue created successfully: ${newIssue.data.html_url}`,
-    );
+    const newIssueNodeId = newIssue.data.node_id;
+    core.notice(`Mirrored issue created: ${newIssue.data.html_url}`);
 
-    // Add a comment to the ORIGINAL issue linking to the new one
+    // Add to GitHub Project V2
+    core.info("Adding issue to GitHub Project and syncing fields...");
+
+    const projectNumber = process.env.PROJECT_NUMBER;
+
+    try {
+      const projectData = await getProjectData(
+        targetClient.graphql,
+        targetOwner,
+        projectNumber,
+      );
+
+      const projectId = projectData.id;
+
+      // Add the issue to the board
+      const itemId = await addIssueToProject(
+        targetClient.graphql,
+        projectId,
+        newIssueNodeId,
+      );
+
+      // Map field names to their internal IDs
+      const fields = projectData.fields.nodes;
+      const getFieldId = (name: string) =>
+        fields.find((field: any) => field.name === name)?.id;
+
+      // Update text fields (Note: If any of these are Dropdowns/Single Selects in your project,
+      // you need a different mutation, but this assumes they are Text fields for now).
+      await updateProjectTextField(
+        targetClient.graphql,
+        projectId,
+        itemId,
+        getFieldId("Incident #"),
+        incidentDetails.incidentNumber,
+      );
+      await updateProjectTextField(
+        targetClient.graphql,
+        projectId,
+        itemId,
+        getFieldId("Incident Type"),
+        incidentDetails.incidentType,
+      );
+      await updateProjectTextField(
+        targetClient.graphql,
+        projectId,
+        itemId,
+        getFieldId("Opened Date"),
+        incidentDetails.openedDate,
+      );
+      await updateProjectTextField(
+        targetClient.graphql,
+        projectId,
+        itemId,
+        getFieldId("Reported By"),
+        incidentDetails.reportedBy,
+      );
+      await updateProjectTextField(
+        targetClient.graphql,
+        projectId,
+        itemId,
+        getFieldId("Description"),
+        incidentDetails.description,
+      );
+      await updateProjectTextField(
+        targetClient.graphql,
+        projectId,
+        itemId,
+        getFieldId("Impacted WSO2 BU or Customer"),
+        incidentDetails.impactedCustomerOrBU,
+      );
+      await updateProjectTextField(
+        targetClient.graphql,
+        projectId,
+        itemId,
+        getFieldId("Category/Rating/Priority"),
+        incidentDetails.priority,
+      );
+      await updateProjectTextField(
+        targetClient.graphql,
+        projectId,
+        itemId,
+        getFieldId("Assignment Group/Team"),
+        incidentDetails.assignmentGroup,
+      );
+      await updateProjectTextField(
+        targetClient.graphql,
+        projectId,
+        itemId,
+        getFieldId("Assignment To"),
+        incidentDetails.assignmentTo,
+      );
+      await updateProjectTextField(
+        targetClient.graphql,
+        projectId,
+        itemId,
+        getFieldId("Service/Product/Scope/system/Tool"),
+        incidentDetails.affectedSystem,
+      );
+      await updateProjectTextField(
+        targetClient.graphql,
+        projectId,
+        itemId,
+        getFieldId("Attachment options for incident report"),
+        incidentDetails.attachmentOptions,
+      );
+
+      core.notice("Successfully synced data to Project V2!");
+    } catch (projectError: any) {
+      core.warning(
+        `Issue created, but failed to sync to Project: ${projectError.message}`,
+      );
+    }
+
+    // --- 3. Leave Comment on Original Issue ---
     await github.rest.issues.createComment({
       owner: context.repo.owner,
       repo: context.repo.repo,
