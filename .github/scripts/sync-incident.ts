@@ -209,7 +209,11 @@ module.exports = async ({
 
     core.info(`Creating mirrored issue in ${targetOwner}/${targetRepo}...`);
 
-    const newIssue = await github.rest.issues.create({
+    const centralizedRepoClient = github.getOctokit(
+      process.env.CENTRALIZED_REPO_TOKEN as string,
+    );
+
+    const newIssue = await centralizedRepoClient.rest.issues.create({
       owner: targetOwner,
       repo: targetRepo,
       title: `${data.title}`,
