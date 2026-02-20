@@ -111,6 +111,7 @@ module.exports = async ({
   github,
   fs,
   path,
+  getOctokit,
 }: any): Promise<void> => {
   try {
     core.info("Starting Incident Parser & Mirroring...");
@@ -209,7 +210,7 @@ module.exports = async ({
 
     core.info(`Creating mirrored issue in ${targetOwner}/${targetRepo}...`);
 
-    const centralizedRepoClient = github.getOctokit(
+    const centralizedRepoClient = getOctokit(
       process.env.CENTRALIZED_REPO_TOKEN as string,
     );
 

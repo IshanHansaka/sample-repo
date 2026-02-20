@@ -46,7 +46,8 @@ jobs:
               core,
               google: google,
               fs: fs,
-              path: path
+              path: path,
+              getOctokit: getOctokit
             })
         env:
           CENTRALIZED_REPO_TOKEN: ${{ secrets.SYNC_PAT_TOKEN }}
