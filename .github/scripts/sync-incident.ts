@@ -210,9 +210,18 @@ module.exports = async ({
 
     core.info(`Creating mirrored issue in ${targetOwner}/${targetRepo}...`);
 
-    const centralizedRepoClient = getOctokit(
-      process.env.CENTRALIZED_REPO_TOKEN as string,
-    );
+    const centralizedRepoToken = process.env.CENTRALIZED_REPO_TOKEN as string;
+    let centralizedRepoClient;
+
+    if (typeof getOctokit === "function") {
+      centralizedRepoClient = getOctokit(centralizedRepoToken);
+    } else if (github?.constructor) {
+      centralizedRepoClient = new github.constructor({
+        auth: centralizedRepoToken,
+      });
+    } else {
+      throw new Error("Unable to create Octokit client for target repository.");
+    }
 
     const newIssue = await centralizedRepoClient.rest.issues.create({
       owner: targetOwner,
