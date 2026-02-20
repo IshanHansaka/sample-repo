@@ -51,6 +51,19 @@ function extractMarkdownField(markdown: string, fieldName: string): string {
   return "Not Found";
 }
 
+// HELPER: Formats Google Doc dates to strict YYYY-MM-DD for GitHub Projects
+function formatDateForGitHub(dateString: string): string | null {
+  if (
+    !dateString ||
+    dateString === "Not Found" ||
+    dateString === "Not Specified"
+  )
+    return null;
+  // Extracts the first YYYY-MM-DD sequence it finds
+  const match = dateString.match(/(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : null;
+}
+
 /**
  * AUTHENTICATION & EXPORT LOGIC
  */
@@ -58,28 +71,22 @@ async function fetchGoogleDocContent(
   docId: string,
   google: any,
 ): Promise<string> {
-  // ... (keep your existing Google API logic exactly as is)
   try {
     const clientId = (process.env.GCP_CLIENT_ID || "").trim();
     const clientSecret = (process.env.GCP_CLIENT_SECRET || "").trim();
     const refreshToken = (process.env.GCP_REFRESH_TOKEN || "").trim();
-
-    if (!clientId || !clientSecret || !refreshToken) {
+    if (!clientId || !clientSecret || !refreshToken)
       throw new Error("Missing GCP Secrets.");
-    }
 
     const auth = new google.auth.OAuth2(clientId, clientSecret);
     auth.setCredentials({ refresh_token: refreshToken });
-
     const drive = google.drive({ version: "v3", auth });
 
     console.log(`   Fetching Doc ID: ${docId}...`);
-
     const response = await drive.files.export({
       fileId: docId,
       mimeType: "text/markdown",
     });
-
     console.log("   Content fetched.");
     return response.data as string;
   } catch (error: any) {
@@ -109,17 +116,18 @@ async function getProjectData(
           id
           fields(first: 50) {
             nodes {
-              ... on ProjectV2Field { id name }
-              ... on ProjectV2SingleSelectField { id name }
+              ... on ProjectV2Field { id name dataType }
+              ... on ProjectV2SingleSelectField { id name dataType }
             }
           }
         }
       }
     }
   `;
+  // Make sure projectNumber is parsed as an Integer for the GraphQL query!
   const result = await graphql(query, {
     login: userLogin,
-    number: projectNumber,
+    number: parseInt(projectNumber.toString(), 10),
   });
   return result.user.projectV2;
 }
@@ -140,6 +148,7 @@ async function addIssueToProject(
   return result.addProjectV2ItemById.item.id;
 }
 
+// Updates TEXT fields
 async function updateProjectTextField(
   graphql: any,
   projectId: string,
@@ -156,6 +165,28 @@ async function updateProjectTextField(
         itemId: $itemId,
         fieldId: $fieldId,
         value: { text: $value }
+      }) { projectV2Item { id } }
+    }
+  `;
+  await graphql(mutation, { projectId, itemId, fieldId, value });
+}
+
+// HELPER: Updates DATE fields
+async function updateProjectDateField(
+  graphql: any,
+  projectId: string,
+  itemId: string,
+  fieldId: string,
+  value: string | null,
+) {
+  if (!fieldId || !value) return;
+  const mutation = `
+    mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: Date!) {
+      updateProjectV2ItemFieldValue(input: {
+        projectId: $projectId,
+        itemId: $itemId,
+        fieldId: $fieldId,
+        value: { date: $value }
       }) { projectV2Item { id } }
     }
   `;
@@ -189,7 +220,6 @@ module.exports = async ({
 
     const docId = match[1];
     const docUrl = `https://docs.google.com/document/d/${docId}`;
-
     core.notice(
       `Security Incident Report Found: https://docs.google.com/document/d/${docId}`,
     );
@@ -222,13 +252,12 @@ module.exports = async ({
       attachmentOptions: docUrl,
     };
 
-    // Template Replacement Logic
+    // Template Replacement
     const workspace = process.env.GITHUB_WORKSPACE || ".";
     const templatePath = path.join(
       workspace,
       ".github/templates/incident-mirror.md",
     );
-
     let mirroredIssueBody = fs.readFileSync(templatePath, "utf8");
 
     const replacements: Record<string, string> = {
@@ -292,8 +321,11 @@ module.exports = async ({
 
     // Add to GitHub Project V2
     core.info("Adding issue to GitHub Project and syncing fields...");
-
     const projectNumber = process.env.PROJECT_NUMBER;
+
+    if (!projectNumber) {
+      throw new Error("Missing PROJECT_NUMBER in environment variables.");
+    }
 
     try {
       const projectData = await getProjectData(
@@ -301,23 +333,19 @@ module.exports = async ({
         targetOwner,
         projectNumber,
       );
-
       const projectId = projectData.id;
 
-      // Add the issue to the board
       const itemId = await addIssueToProject(
         targetClient.graphql,
         projectId,
         newIssueNodeId,
       );
 
-      // Map field names to their internal IDs
       const fields = projectData.fields.nodes;
       const getFieldId = (name: string) =>
         fields.find((field: any) => field.name === name)?.id;
 
-      // Update text fields (Note: If any of these are Dropdowns/Single Selects in your project,
-      // you need a different mutation, but this assumes they are Text fields for now).
+      // Update Text Fields
       await updateProjectTextField(
         targetClient.graphql,
         projectId,
@@ -331,13 +359,6 @@ module.exports = async ({
         itemId,
         getFieldId("Incident Type"),
         incidentDetails.incidentType,
-      );
-      await updateProjectTextField(
-        targetClient.graphql,
-        projectId,
-        itemId,
-        getFieldId("Opened Date"),
-        incidentDetails.openedDate,
       );
       await updateProjectTextField(
         targetClient.graphql,
@@ -378,6 +399,13 @@ module.exports = async ({
         targetClient.graphql,
         projectId,
         itemId,
+        getFieldId("Last Updated By"),
+        incidentDetails.lastUpdatedBy || "",
+      );
+      await updateProjectTextField(
+        targetClient.graphql,
+        projectId,
+        itemId,
         getFieldId("Assignment To"),
         incidentDetails.assignmentTo,
       );
@@ -396,6 +424,29 @@ module.exports = async ({
         incidentDetails.attachmentOptions,
       );
 
+      // UPDATE DATE FIELDS
+      await updateProjectDateField(
+        targetClient.graphql,
+        projectId,
+        itemId,
+        getFieldId("Opened Date"),
+        formatDateForGitHub(incidentDetails.openedDate),
+      );
+      await updateProjectDateField(
+        targetClient.graphql,
+        projectId,
+        itemId,
+        getFieldId("Closed date"),
+        formatDateForGitHub(incidentDetails.closedDate),
+      );
+      await updateProjectDateField(
+        targetClient.graphql,
+        projectId,
+        itemId,
+        getFieldId("Last Updated"),
+        formatDateForGitHub(incidentDetails.lastUpdated),
+      );
+
       core.notice("Successfully synced data to Project V2!");
     } catch (projectError: any) {
       core.warning(
@@ -403,7 +454,7 @@ module.exports = async ({
       );
     }
 
-    // --- 3. Leave Comment on Original Issue ---
+    // Leave Comment on Original Issue
     await github.rest.issues.createComment({
       owner: context.repo.owner,
       repo: context.repo.repo,
