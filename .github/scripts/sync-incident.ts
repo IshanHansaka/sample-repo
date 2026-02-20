@@ -1,22 +1,20 @@
 const GOOGLE_DOC_REGEX = /docs\.google\.com\/document\/d\/([a-zA-Z0-9-_]+)/;
 
-// --- INTERFACES ---
 interface IssueData {
   number: number;
   title: string;
   description: string;
   author: string | null;
   url: string;
-  assignees: string | null;
+  assignees: string[];
   state: string;
   updatedAt: string;
   closedAt: string | null;
   repoName: string;
-  milestone: string | null;
   labels: string[];
 }
 
-// Helper to extract GitHub data
+// Helper to extract GitHub issue data
 function parseIssueData(payload: any): IssueData {
   const { issue, repository } = payload;
 
@@ -26,17 +24,16 @@ function parseIssueData(payload: any): IssueData {
     description: issue.body || "",
     author: issue.user?.login || null,
     url: issue.html_url,
-    assignees: issue.assignees?.map((a: any) => a.login).join(", ") || null,
+    assignees: issue.assignees?.map((assignee: any) => assignee.login) || [],
     state: issue.state,
     updatedAt: issue.updated_at,
     closedAt: issue.closed_at || null,
     repoName: repository.full_name,
-    milestone: issue.milestone?.title || null,
-    labels: issue.labels?.map((l: any) => l.name) || [],
+    labels: issue.labels?.map((label: any) => label.name) || [],
   };
 }
 
-// --- NEW HELPER: EXTRACT FROM MARKDOWN TABLE ---
+// Helper to extract Google doc markdown data
 function extractMarkdownField(markdown: string, fieldName: string): string {
   // Escapes special characters in the field name
   const safeFieldName = fieldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -46,16 +43,20 @@ function extractMarkdownField(markdown: string, fieldName: string): string {
     `\\|\\s*(?:\\*\\*|__)?${safeFieldName}(?:\\*\\*|__)?\\s*\\|([^|]+)\\|`,
     "i",
   );
+
   const match = markdown.match(regex);
 
   if (match && match[1]) {
     const value = match[1].trim();
+
     // Clean up empty template placeholders
     if (value === "SELECT" || value === "" || value === "N/A") {
       return "Not Specified";
     }
+
     return value;
   }
+
   return "Not Found";
 }
 
@@ -129,10 +130,11 @@ module.exports = async ({
     const docId = match[1];
     const docUrl = `https://docs.google.com/document/d/${docId}`;
 
-    core.notice(`Security Report Found: ${docId}`);
-    core.info(`   Full Link: https://docs.google.com/document/d/${docId}`);
+    core.notice(
+      `Security Incident Report Found: https://docs.google.com/document/d/${docId}`,
+    );
 
-    // Fetch the raw Markdown text
+    // Fetch the raw Markdown text from google doc
     const markdownText = await fetchGoogleDocContent(docId, google);
 
     // Parse the specific fields into our final variables object
@@ -199,18 +201,31 @@ module.exports = async ({
     };
 
     for (const [placeholder, value] of Object.entries(replacements)) {
-      // Use RegExp with 'g' flag to replace all occurrences of a placeholder
-      const regex = new RegExp(placeholder, "g");
-      mirroredIssueBody = mirroredIssueBody.replace(regex, value);
+      mirroredIssueBody = mirroredIssueBody.split(placeholder).join(value);
     }
 
     // Create the Issue in the Target Repository
-    const targetOwner = "IshanHansaka";
-    const targetRepo = "centralised-repo";
+    const targetOwner = process.env.TARGET_OWNER;
+    const targetRepo = process.env.TARGET_REPO;
 
-    core.info(`Creating mirrored issue in ${targetOwner}/${targetRepo}...`);
+    if (!targetOwner || !targetRepo) {
+      throw new Error(
+        "Missing TARGET_OWNER or TARGET_REPO in environment variables.",
+      );
+    }
 
-    const centralizedRepoToken = process.env.CENTRALIZED_REPO_TOKEN as string;
+    core.info(
+      `Creating mirrored issue in https://github.com/${targetOwner}/${targetRepo}`,
+    );
+
+    const centralizedRepoToken = process.env.CENTRALIZED_REPO_TOKEN;
+
+    if (!centralizedRepoToken || centralizedRepoToken.trim() === "") {
+      throw new Error(
+        "Missing or empty CENTRALIZED_REPO_TOKEN in environment variables.",
+      );
+    }
+
     let centralizedRepoClient;
 
     if (typeof getOctokit === "function") {
@@ -229,10 +244,7 @@ module.exports = async ({
       title: `${data.title}`,
       body: mirroredIssueBody,
       labels: [...data.labels, "mirrored-incident"],
-      assignees: data.assignees
-        ? data.assignees.split(", ").map((a: string) => a.trim())
-        : null,
-      milestones: data.milestone ? [data.milestone] : null,
+      assignees: data.assignees.length > 0 ? data.assignees : undefined,
     });
 
     core.notice(
